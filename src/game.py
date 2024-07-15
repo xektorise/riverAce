@@ -36,25 +36,71 @@ class Game:
             self.current_player_index = (self.dealer_index) % len(self.players)
         
         def betting_rounds(self):
-            for _ in range(len(self.players)):
-                player = self.player[self.current_player_index % len(self.players)]
-                self.current_player_index += 1
-                # more to come
-        
+            active_players = [player for player in self.players if not player.has_folded]
+            for player in active_players:
+                if not player.has_folded:
+                    action = player.decide(self.get_game_state())
+
+                    if action == 'bet':
+                        bet_amount = player.bet(self.current_bet)
+                        self.pot += bet_amount
+                    elif action == 'check':
+                        player.check()
+                    elif action == 'fold':
+                        player.fold()
+                    elif action == 'raise':
+                        raise_amount = player.bet(self.current_bet * 2) # beispiel raise
+                        self.pot += raise_amount
+                        self.current_bet = raise_amount
+
+
+
         def move_dealer(self):
-            pass
+            self.dealer_index  = (self.dealer_index + 1) % len(self.players)
         
         def play_round(self):
             self.deck.shuffle()
             self.deal_hands()
             self.post_blinds()
-            
-            #spielrunden implementieren (preflop, flop, turn, river)
+
+            # pre-flop betting
+            self.deal_community_cards(3)
+            self.betting_round()
+            self.collect_bets()
+
+            # turn
+            self.deal_community_cards(1)
+            self.betting_round()
+            self.collect_bets()
+
+            # river
+            self.deal_community_cards(1)
+            self.betting_round()
+            self.collect_bets()
+
+            # determine winner
+            self.determine_winner()
+            self.move_dealer()
         
         
         def determine_winner(self):
-            pass
+            best_hand = None
+            winner = None
+            for player in self.players:
+                if not player.has_folded:
+                    player_hand = player.hand.evaluate(self.community_cards)
+                    
+                    if not best_hand or player_hand > best_hand:
+                        best_hand = player_hand
+                        winner = player
+                    
+                    if winner:
+                        winner.chips += self.pot
+                    self.pot = 0
         
-        def remove_player(self):
+        def remove_player(self, player):
+            self.players.remove(player)
+        
+        def game_state(self):
             pass
         
