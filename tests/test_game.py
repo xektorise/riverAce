@@ -37,7 +37,7 @@ class TestGame(unittest.TestCase):
         self.assertEqual(self.game.current_bet, 20)
     
     
-    def test_collect_bet(self):
+    def test_collect_bets(self):
         self.game.post_blinds()
         print("Pot before collecting bets:", self.game.pot)
         self.game.collect_bets()
@@ -50,7 +50,7 @@ class TestGame(unittest.TestCase):
         for player in self.players:
             player.decide = MagicMock(return_value = 'check')
         
-        self.game.betting_rounds()
+        self.game.betting_round()
         
         for player in self.players:
             self.assertEqual(player.current_bet, 0)

@@ -1,5 +1,4 @@
 import unittest
-
 import os
 import sys
 
@@ -27,12 +26,8 @@ class TestPlayer(unittest.TestCase):
         self.assertEqual(player.chips, 4800)
         self.assertEqual(player.current_bet, 200)
         
-        
-        bet_amount = player.bet(4900)
-        self.assertEqual(bet_amount, 0)
-        self.assertEqual(player.chips, 4800)
-        self.assertEqual(player.current_bet, 200)
-    
+        with self.assertRaises(ValueError):
+            player.bet(4900)
     
     def test_player_call(self):
         player = Player('Roman', 5000, 100)
@@ -61,7 +56,6 @@ class TestPlayer(unittest.TestCase):
         self.assertEqual(player.chips, 4200)
         self.assertEqual(player.current_bet, 800)
         
-        
         player.current_bet = 0
         player.chips = 1000
         custom_raise_amount = player.raise_bet(300, 500)
@@ -78,5 +72,3 @@ class TestPlayer(unittest.TestCase):
     
 if __name__ == '__main__':
     unittest.main()
-    
-    
