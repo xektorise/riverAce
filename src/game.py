@@ -52,37 +52,40 @@ class Game:
             for player in active_players:
                 if not player.has_folded and player.chips > 0:
                     if not first_bet_made:
-                        action = player.decide(self.get_game_state(), options=['bet', 'check', 'fold'])
+                        action = player.decide(self.get_game_state(), options=['bet', 'fold', 'raise'])
                         if action == 'bet':
-                            bet_amount = player.bet(self.current_bet)
+                            bet_amount = player.bet(self.big_blind)
                             self.current_bet = bet_amount
                             first_bet_made = True
-                        elif action == 'check':
-                            player.check()
+                        elif action == 'raise':
+                            raise_amount = player.raise_bet(self.pot, self.current_bet)
+                            self.current_bet = raise_amount
+                            first_bet_made = True
                         elif action == 'fold':
                             player.fold()
                     else:
-                        action = player.decide(self.get_game_state(), options=['call', 'raise', 'all_in', 'fold'])
+                        action = player.decide(self.get_game_state(), options=['call', 'fold', 'raise', 'all_in'])
                         if action == 'raise':
                             raise_amount = player.raise_bet(self.pot, self.current_bet)
                             self.current_bet = raise_amount
                         elif action == 'call':
                             call_amount = self.current_bet - player.current_bet
-                            player.bet(call_amount)
-                        elif action == 'check':
-                            player.check()
+                            if call_amount > player.chips:
+                                player.all_in()
+                            else:
+                                player.bet(call_amount)
                         elif action == 'fold':
                             player.fold()
                         elif action == 'all_in':
                             all_in_amount = player.all_in()
                             self.handle_side_pots(player, all_in_amount)
+                    
+            self.collect_bets()
 
-                    self.collect_bets()
-
-            # Check if betting round is complete
             active_players = [player for player in self.players if not player.has_folded and player.chips > 0]
             if all(player.current_bet >= self.current_bet for player in active_players):
                 break
+    
     
     def handle_side_pots(self, all_in_player, all_in_amount):
         """Handle side pots when a player goes all-in."""
@@ -142,7 +145,7 @@ class Game:
         eliminated_players = [player for player in self.players if player.chips == 0]
         for eliminated_player in eliminated_players:
             if winners:
-                winners[0].chips += eliminated_player.bounty  # Assign bounty to the first winner
+                winners[0].chips += eliminated_player.bounty 
             self.remove_player(eliminated_player)
 
         self.pot = 0
@@ -157,13 +160,13 @@ class Game:
         for winner in winners:
             winner.chips += pot_share
 
-        # Distribute the remainder chips starting from the dealer
+        # distribute the remainder chips starting from the dealer
         for i in range(remainder):
             winners[(self.dealer_index + i) % num_winners].chips += 1
     
     def remove_player(self, player):
         """Remove a player from the game."""
-        self.players.remove(player)
+        self.players = [p for p in self.players if p.name != player.name]
     
     def get_game_state(self):
         """Get the current game state."""

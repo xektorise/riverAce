@@ -19,6 +19,11 @@ class Player:
         return (f"Player(name='{self.name}', chips={self.chips}, bounty={self.bounty}, "
                 f"hand={self.hand}, has_folded={self.has_folded}, current_bet={self.current_bet})")
     
+    def __eq__(self, other):
+        if isinstance(other, Player):
+            return self.name == other.name and self.chips == other.chips and self.bounty == other.bounty
+        return False
+    
     def bet(self, amount: int) -> int:
         """Place a bet of a given amount.
         
