@@ -1,99 +1,87 @@
-from player import Player
-from card import Card
 import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from player import Player
+from neural_network import NeuralNetwork
+from data_processor import DataPreprocessor
+from typing import List, Dict
 
 class Bot(Player):
-    def __init__(self, name, chips, model, bounty):
-        """Initialize the bot with a name, chips, model, and bounty."""
+    def __init__(self, name: str, chips: int, bounty: int):
         super().__init__(name, chips, bounty)
-        self.model = model
-    
-    def decide(self, game_state):
-        """Decide on an action based on the game state."""
-        if self.model:
-            state_vector = self.convert_state_to_vector(game_state)
-            prediction = self.model.predict(state_vector.reshape(1, -1))
-            action = np.argmax(prediction)
-            return self.action_from_index(action)
-        else:
-            return self.strategy(game_state)
-    
-    def convert_state_to_vector(self, game_state):
-        """Convert the game state to a feature vector for the model."""
-        player_chips = game_state['player_chips'][self.name]
-        community_cards = self._convert_cards_to_vector(game_state['community_cards'])
-        player_hands = self._convert_cards_to_vector(self.hand.hole_cards)
-        pot_size = game_state['pot_size']
-        current_bet = game_state['current_bet']
-        position = game_state['player_positions'][self.name]
-        bounty = self.bounty
-        
-        state_vector = np.concatenate([
-            np.array([player_chips, pot_size, current_bet, position, bounty]),
-            community_cards,
-            player_hands
-        ])
-        
-        return state_vector
-    
-    def _convert_cards_to_vector(self, cards):
-        """Convert a list of Card objects to a vector of ranks and suits."""
-        rank_order = {rank: index for index, rank in enumerate(Card.ranks, start=2)}
-        suit_order = {suit: index for index, suit in enumerate(Card.suits, start=1)}
-        
-        vector = np.zeros(10)  # assuming a maximum of 5 cards (rank and suit pairs)
-        for i, card in enumerate(cards):
-            if i < 5:
-                vector[2 * i] = rank_order[card.rank]
-                vector[2 * i + 1] = suit_order[card.suit]
-        
-        return vector
-    
-    def strategy(self, game_state):
-        """Fallback strategy when no model is provided."""
-        current_bet = game_state['current_bet']
-        community_cards = game_state['community_cards']
-        player_hands = self.hand.hole_cards
-        
-        if not community_cards:  # Pre-flop strategy
-            hand_strength = self.evaluate_starting_hand(player_hands)
-            if hand_strength >= 8:
-                return 'raise'
-            elif hand_strength >= 5:
-                return 'call'
-            else:
-                return 'fold'
-        
-        # post-flop strategy
-        hand_strength = self.evaluate_hand_strength(player_hands + community_cards)
-        if hand_strength >= 8:
-            return 'raise'
-        elif hand_strength >= 5:
-            return 'call'
-        else:
-            return 'fold'
-    
-    def evaluate_starting_hand(self, hand):
-        """Evaluate the strength of the starting hand."""
-        ranks = [card.rank for card in hand]
-        if ranks[0] == ranks[1]:  # pair
-            return 10
-        elif 'A' in ranks or 'K' in ranks:  # high cards
-            return 7
-        else:
-            return 3
-    
-    def evaluate_hand_strength(self, hand):
-        """Evaluate the strength of the hand after the flop."""
-        ranks = [card.rank for card in hand]
-        if len(set(ranks)) < len(ranks):  # at least one pair
-            return 10
-        elif 'A' in ranks or 'K' in ranks or 'Q' in ranks:  # high cards
-            return 7
-        else:
-            return 3
+        self.preprocessor = DataPreprocessor()
+        self.model = self._initialize_model()
+        self.scaler = StandardScaler()
+        self.action_map = {0: 'fold', 1: 'check', 2: 'call', 3: 'bet', 4: 'raise', 5: 'all-in'}
 
-    def action_from_index(self, index):
-        """Convert model output index to action."""
-        actions = ['fold', 'call', 'raise']
-        return actions[index]
+    def _initialize_model(self):
+        # Initialize a RandomForestClassifier as our model
+        return RandomForestClassifier(n_estimators=100, random_state=42)
+
+    def _preprocess_game_state(self, game_state: Dict) -> np.array:
+        # Convert game state to a feature vector
+        features = [
+            game_state['pot_size'],
+            len(game_state['community_cards']),
+            game_state['current_bet'],
+            self.chips,
+            self.calculate_hand_strength(game_state['community_cards']),
+            self.position_to_numeric(game_state['player_positions'][self.name]),
+            # Add more features as needed
+        ]
+        return np.array(features).reshape(1, -1)
+
+    def position_to_numeric(self, position: int) -> float:
+        # Convert position to a numeric value between 0 and 1
+        return position / len(self.players)
+
+    def calculate_hand_strength(self, community_cards: List['Card']) -> float:
+        # Implement hand strength calculation
+        # This is a placeholder - you'll need to implement actual hand strength logic
+        return np.random.random()
+
+    def train(self, game_states: List[Dict], actions: List[int]):
+
+        df = self.preprocessor.create_dataframe(game_states, actions)
+        x = df[self.preprocessor.feature_columns]
+        y = df['action']
+
+        # Split the data
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        # Scale the features
+        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_test_scaled = self.scaler.transform(X_test)
+
+        # Train the model
+        self.model.fit(X_train_scaled, y_train)
+
+        # Print the model's accuracy
+        print(f"Model accuracy: {self.model.score(X_test_scaled, y_test)}")
+
+    def decide(self, game_state: Dict, options: List[str]) -> str:
+        processed_state = self.preprocessor.preprocess_game_state(game_state)
+        # Preprocess the game state
+        features = self._preprocess_game_state(game_state)
+
+        # Scale the features
+        scaled_features = self.scaler.transform(features)
+
+        # Get the model's prediction
+        action_index = self.model.predict(scaled_features)[0]
+
+        # Map the prediction to an action
+        predicted_action = self.action_map[action_index]
+
+        # Ensure the predicted action is in the list of options
+        if predicted_action in options:
+            return predicted_action
+        else:
+            # If the predicted action is not available, choose randomly from available options
+            return np.random.choice(options)
+
+    def update_model(self, game_history: pd.DataFrame):
+        # Use game history to update the model
+        self.train(game_history)

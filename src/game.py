@@ -22,6 +22,8 @@ class Game:
         self.current_player_index = 0
         self.dealer_index = 0
         self.side_pots: List[Tuple[int, Player]] = []
+        self.current_stage = 'pre-flop'
+        self.logger = self._setup_logger()
     
     
     def _setup_logger(self):
@@ -65,7 +67,7 @@ class Game:
         self.current_player_index = (self.dealer_index + 3) % len(self.players)
         self.logger.info(f"Blinds posted. SB: {small_blind_player}, BB: {big_blind_player}")
     
-    def betting_round(self):
+    def betting_round(self) -> None:
         """Conduct a single round of betting."""
         active_players = [player for player in self.players if not player.has_folded and player.chips > 0]
         players_acted = 0
@@ -77,7 +79,7 @@ class Game:
                 self.current_player_index = (self.current_player_index + 1) % len(active_players)
                 continue
                 
-            action = self._get_player_action(current_player)
+            action = self._get_player_action(current_player, first_bet_made=(self.current_bet > 0))
             self._process_player_action(current_player, action)
                 
             if action in ['bet', 'raise']:
@@ -115,34 +117,47 @@ class Game:
         if action == 'bet':
             bet_amount = player.bet(self.big_blind)
             self.current_bet = bet_amount
+            self.logger.info(f"Player {player.name} bet {bet_amount}")
         elif action == 'check':
             player.check()
+            self.logger.info(f"Player {player.name} checked")
         elif action == 'raise':
             raise_amount = player.raise_bet(self.pot, self.current_bet)
             self.current_bet = raise_amount
+            self.logger.info(f"Player {player.name} raised to {raise_amount}")
         elif action == 'call':
             call_amount = self.current_bet - player.current_bet
             if call_amount > player.chips:
                 player.all_in()
+                self.logger.info(f"Player {player.name} called all-in for {all_in_amount}")
             else:
                 player.bet(call_amount)
+                self.logger.info(f"Player {player.name} called {call_amount}")
         elif action == 'fold':
             player.fold()
+            self.logger.info(f"Player {player.name} folded")
         elif action == 'all-in':
             all_in_amount = player.all_in()
+            if all_in_amount > self.current_bet:
+                self.current_bet = all_in_amount
             self.handle_side_pots(player, all_in_amount)
-        self.logger.info(f"Player {player.name} action {action}")
+            self.logger.info(f"Player {player.name} went all-in for {all_in_amount}")
     
     
     
-    def handle_side_pots(self, all_in_player, all_in_amount):
+    def handle_side_pots(self, all_in_player: Player, all_in_amount: int) -> None:
         """Handle side pots when a player goes all-in."""
+        side_pot = 0
         for player in self.players:
-            if player != all_in_player and player.current_bet > all_in_amount:
-                excess_bet = player.current_bet - all_in_amount
-                player.current_bet -= excess_bet
-                self.side_pots.append((excess_bet, player))
-        self.logger.info(f"Side pot created for player {all_in_player.name}")
+            if player.current_bet > all_in_amount:
+                excess = player.current_bet - all_in_amount
+                player.current_bet = all_in_amount
+                side_pot += excess
+
+        if side_pot > 0:
+            self.side_pots.append((side_pot, [p for p in self.players if p != all_in_player and not p.has_folded]))
+        
+        self.logger.info(f"Side pot of {side_pot} created, excluding {all_in_player.name}")
 
     def move_dealer(self):
         """Move the dealer button to the next player."""
@@ -150,23 +165,25 @@ class Game:
         self.logger.info(f"Dealer moved to player {self.players[self.dealer_index].name}")
     
     def play_round(self):
-        """Play a full round of poker."""
-        self.logger.info("New round started")
-        self.deck.shuffle()
-        self.deal_hands()
-        self.post_blinds()
-        
-        for stage in self.STAGES:
-            self.logger.info(f"Stage: {stage}")
-            if stage == 'flop':
-                self.deal_community_cards(3)
-            elif stage in ['turn', 'river']:
-                self.deal_community_cards(1)
-            self.betting_round()
-            
-        self.determine_winner()
-        self.move_dealer()
-     
+        try:
+            self.logger.info("New round started")
+            self.deck.shuffle()
+            self.deal_hands()
+            self.post_blinds()
+
+            for stage in self.STAGES:
+                self.current_stage = stage
+                self.logger.info(f"Stage: {stage}")
+                if stage == 'flop':
+                    self.deal_community_cards(3)
+                elif stage in ['turn', 'river']:
+                    self.deal_community_cards(1)
+                self.betting_round()
+
+            self.determine_winner()
+            self.move_dealer()
+        except Exception as e:
+            self.logger.error(f"Error during round: {str(e)}")
     
     def determine_winner(self):
         """Determine the winner of the round and handle split pots."""
@@ -183,13 +200,17 @@ class Game:
                     winners.append(player)
         
         if winners:
+            winning_hand, hand_description = best_hand
             self.split_pot(winners)
+            self.logger.info(f"Winning hand: {hand_description} - {winning_hand}")
 
         # distribute bounties and eliminate players with zero chips
         eliminated_players = [player for player in self.players if player.chips == 0]
         for eliminated_player in eliminated_players:
-            if winners:
-                winners[0].chips += eliminated_player.bounty 
+
+            eliminator = max((p for p in self.players if not p.has_folded), key=lambda p: p.current_bet)
+            eliminator.chips += eliminated_player.bounty
+            self.logger.info(f"{eliminator.name} won {eliminated_player.bounty} bounty from {eliminated_player.name}")
             self.remove_player(eliminated_player)
 
         self.pot = 0
@@ -215,8 +236,21 @@ class Game:
         """Remove a player from the game."""
         self.players = [p for p in self.players if p.name != player.name]
         self.logger.info(f"Players {player.name} removed from the game.")
+        if len(self.players) == 1:
+            self.logger.info(f"Game over. {self.players[0].name} wins")
     
-    def get_game_state(self):
+
+    def reset_for_new_round(self):
+        self.pot = 0
+        self.community_cards = []
+        self.current_bet = 0
+        self.side_pots = []
+        self.current_stage = 'pre-flop'
+        for player in self.players:
+            player.reset_for_new_round()
+
+
+    def get_game_state(self) -> Dict:
         """Get the current game state."""
         return {
             'pot_size': self.pot,
@@ -224,5 +258,6 @@ class Game:
             'current_bet': self.current_bet,
             'player_chips': {player.name: player.chips for player in self.players},
             'player_positions': {player.name: (self.dealer_index + i) % len(self.players) for i, player in enumerate(self.players)},
-            'bounties': {player.name: player.bounty for player in self.players}
+            'bounties': {player.name: player.bounty for player in self.players},
+            'current_stage' : self.current_stage
         }

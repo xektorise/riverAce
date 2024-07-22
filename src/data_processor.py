@@ -1,76 +1,143 @@
-import pandas as pd
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split
 import numpy as np
+import pandas as pd
+from typing import List, Dict
+from sklearn.preprocessing import StandardScaler
 
-class DataProcessor:
-    
-    @staticmethod
-    def preprocess(data):
-        """
-        Preprocess the input data.
-        
-        Parameters:
-        data (list or dict): The input data to preprocess.
-        
-        Returns:
-        numpy.ndarray: The preprocessed data as a NumPy array.
-        """
-        df = pd.DataFrame(data)
-        
-        # handle missing values
-        imputer = SimpleImputer(strategy='mean')
-        df = pd.DataFrame(imputer.fit_transform(df), columns=df.columns)
-        
-        # encode categorical data
-        categorical_cols = df.select_dtypes(include=['object', 'category']).columns
-        if not categorical_cols.empty:
-            encoder = OneHotEncoder(sparse=False)
-            encoded_cols = encoder.fit_transform(df[categorical_cols])
-            encoded_df = pd.DataFrame(encoded_cols, columns=encoder.get_feature_names_out(categorical_cols))
-            df = df.drop(categorical_cols, axis=1).join(encoded_df)
-        
-        # normalize/Standardize
-        scaler = StandardScaler()
-        df = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
-        
-        return df.values
-    
-    @staticmethod
-    def load_data(filepath):
-        """
-        Load data from a CSV file.
-        
-        Parameters:
-        filepath (str): The path to the CSV file.
-        
-        Returns:
-        pandas.DataFrame: The loaded data as a DataFrame.
-        """
+class DataPreprocessor:
+    def __init__(self):
+        self.scaler = StandardScaler()
+        self.feature_columns = [
+            'pot_size', 'num_community_cards', 'current_bet', 
+            'player_chips', 'hand_strength', 'position', 'stack_to_pot_ratio', 'num_players'
+        ]
+        self.action_map = {'fold': 0, 'check': 1, 'call': 2, 'bet': 3, 'raise': 4, 'all-in': 5}
+        self.reverse_action_map = {v: k for k, v in self.action_map.items()}
+
+    def preprocess_game_state(self, game_state: Dict) -> np.array:
         try:
-            return pd.read_csv(filepath)
-        except FileNotFoundError:
-            raise Exception(f"The file at {filepath} was not found.")
-        except pd.errors.ParserError:
-            raise Exception(f"Error parsing the file at {filepath}.")
-    
+            features = [
+                game_state['pot_size'],
+                len(game_state['community_cards']),
+                game_state['current_bet'],
+                game_state['player_chips'],
+                self.calculate_hand_strength(game_state['hole_cards'], game_state['community_cards']),
+                self.position_to_numeric(game_state['position']),
+                game_state['player_chips'] / (game_state['pot_size'] + 1),
+                len(game_state['players'])
+            ]
+            return np.array(features).reshape(1, -1)
+        except KeyError as e:
+            raise ValueError(f"Missing key in game state: {e}")
+
+
+    def preprocess_batch(self, game_states: List[Dict]) -> np.array:
+        """
+        Preprocess a batch of game states.
+        """
+        return np.array([self.preprocess_game_state(state)[0] for state in game_states])
+
+    def fit_scaler(self, data: np.array):
+        """
+        Fit the scaler to the data.
+        """
+        self.scaler.fit(data)
+
+    def transform_data(self, data: np.array) -> np.array:
+        """
+        Transform the data using the fitted scaler.
+        """
+        return self.scaler.transform(data)
+
+    def fit_transform_data(self, data: np.array) -> np.array:
+        """
+        Fit the scaler to the data and transform it.
+        """
+        return self.scaler.fit_transform(data)
+
     @staticmethod
-    def split_data(df, target_column='target', test_size=0.2):
-        """
-        Split the data into training and testing sets.
+    def calculate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> float:
+        # Implement hand strength calculation
+        # This is a placeholder - you'll need to implement actual hand strength logic
+        return np.random.random()
+    
+    def normalize_hand_strength(self, strength: float) -> float:
+        # Normalize hand strength to 0-1 range
+        # This method should be adjusted based on your actual hand strength calculation
+        return max(0, min(strength, 1))
+
+    @staticmethod
+    def position_to_numeric(position: int) -> float:
+        # Convert position to a numeric value between 0 and 1
+        # Assuming 8 players max
+        return position / 8
+    
+    def encode_actions(self, actions: List[str]) -> np.array:
+        """Encode categorical actions to numerical values"""
+        action_map = {'fold' : 0, 'check' : 1, 'call' : 2, 'bet' : 3, 'raise' : 4, 'all-in' : 5}
+        return np.array([action_map.get(action, -1) for action in actions])
+    
+    def decode_actions(self, encoded_actions: np.array) -> List[str]:
+        """Decode numerical action values back to categorical strings"""
+        return [self.reverse_action_map.get(action, 'unknown') for action in encoded_actions]
+
+    
+    def handle_missing_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Handle missing data - here we're just dropping rows with any missing values
+        # You might want to use a more sophisticated method depending on your needs
+        return df.dropna()
+    
+    def get_feature_columns(self) -> List[str]:
+        """Return the current feature columns"""
+        return self.feature_columns
+    
+    def update_feature_columns(self, new_columns: List[str]):
+        """Update the feature columns used in preprocessing"""
+        self.feature_columns = new_columns
+
+    def preprocess_single(self, game_state: Dict, action: str) -> np.array:
+        """Preprocess a single game state and action."""
+        features = self.preprocess_game_state(game_state)
+        encoded_action = self.encode_actions([action])
+        return np.concatenate([features.flatten(), encoded_action])
+    
+    def reset_scaler(self):
+        """Reset the scaler to its inital state"""
+        self.scaler = StandardScaler()
+
+    def get_action_map(self) -> Dict[str, int]:
+        """Return the current action map"""
+        return self.action_map
+    
+    def validate_game_state(self, game_state: Dict) -> bool:
+        """Validate that the game state contains all required keys"""
+        required_keys = ['pot_size', 'community_cards', 'current_bet', 'player_chips', 'hole_cards', 'position', 'players']
+        return all(key in game_state for key in required_keys)
+    
+    def normalize_features(self, features: np.array) -> np.array:
+        """Normalize all features to a 0-1 range"""
+        return (features - features.min(axis=0)) / (features.max(axis=0) - features.min(axis=0))
+
+    def create_dataframe(self, game_states: List[Dict], actions: List[int]) -> pd.DataFrame:
+        """Create a pandas DataFrame from game states and actions."""
+        features = self.preprocess_batch(game_states)
+        df = pd.DataFrame(features, columns=self.feature_columns)
+        df['action'] = actions
+        return df
+
+    def load_data(self, filepath: str) -> pd.DataFrame:
+        """Load data from a CSV file."""
+        try:
+            df = pd.read_csv(filepath)
+            print(f"Data loaded sucessfully to {filepath}")
+            return self.handle_missing_data(df)
+        except IOError:
+            print(f"Error loading data from {filepath}")
+            return pd.DataFrame()
         
-        Parameters:
-        df (pandas.DataFrame): The data to split.
-        target_column (str): The name of the target column.
-        test_size (float): The proportion of the dataset to include in the test split.
-        
-        Returns:
-        tuple: (X_train, X_test, y_train, y_test)
-        """
-        if target_column not in df.columns:
-            raise Exception(f"Target column '{target_column}' not found in DataFrame.")
-        
-        X = df.drop(target_column, axis=1)
-        y = df[target_column]
-        return train_test_split(X, y, test_size=test_size, random_state=42)
+    def save_data(self, data: pd.DataFrame, filepath: str):
+        """Save data to a CSV file."""
+        try:
+            data.to_csv(filepath, index=False)
+            print(f"Data saved sucessfully to {filepath}")
+        except IOError:
+            print(f"Error saving data to {filepath}")

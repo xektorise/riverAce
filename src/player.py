@@ -1,14 +1,23 @@
 import json
 from typing import List
-from enum import Enum
+from enum import Enum, auto
 from src.hand import Hand
 from src.card import Card
 
-class PLAYERSTATE(Enum):
+class PlayerState(Enum):
     ACTIVE = 1
     ALL_IN = 2
     FOLDED = 3
     BUST = 4
+
+class Position(Enum):
+    SMALL_BLIND = auto()
+    BIG_BLIND = auto()
+    UNDER_THE_GUN = auto()
+    MIDDLE_POSITION = auto()
+    CUTOFF = auto()
+    BUTTON = auto()
+
 
 class Player:
     def __init__(self, name: str, chips: int, bounty: int):
@@ -20,11 +29,11 @@ class Player:
         self.has_folded = False
         self.current_bet = 0
         self.total_bet = 0
-        self.position: Optional[str] = None
+        self.position: Position = None
         self.hand_history: List[Hand] = []
         self.action_history: List[str] = []
         self.tilt_factor: float = 1.0
-        self.state = PLAYERSTATE.ACTIVE
+        self.state = PlayerState.ACTIVE
         self.stats = {
             'hands_played' : 0,
             'hands_won' : 0,
@@ -111,9 +120,23 @@ class Player:
         """Get the total amount bet by the player in the current round."""
         return self.total_bet
     
-    def set_position(self, position: str) -> None:
+    def get_current_position(self) -> Position:
+        return self.position
+    
+    def set_position(self, position: Position) -> None:
         """Set players position at the table."""
         self.position = position
+    
+    def get_position_category(self) -> str:
+        """Get a simplified category for player's position"""
+        if self.position in (Position.SMALL_BLIND, Position.BIG_BLIND, Position.UNDER_THE_GUN):
+            return "early"
+        if self.position == Position.MIDDLE_POSITION:
+            return "middle"
+        if self.position in (Position.CUTOFF, Position.BUTTON):
+            return "late"
+        else:
+            return "unknown"
         
     def add_hand_to_history(self) -> None:
         self.hand_history.append(self.hand.copy())
@@ -137,18 +160,85 @@ class Player:
     def adjust_tilt_factor(self, factor: float) -> None:
         """Adjust player's tilt factor"""
         self.tilt_factor *= factor
-        self.tilt_factor = max(0.5, min(2,0, self.tilt_factor))
+        self.tilt_factor = max(0.5, min(2.0, self.tilt_factor))
+
+    def reset_tilt_factor(self) -> None:
+        self.tilt_factor = 1.0
     
     def update_state(self) -> None:
         """Update the player's state based on their current situation"""
         if self.chips == 0 and self.current_bet > 0:
-            self.state = PLAYERSTATE.ALL_IN
+            self.state = PlayerState.ALL_IN
         elif self.has_folded:
-            self.state = PLAYERSTATE.FOLDED
+            self.state = PlayerState.FOLDED
         elif self.chips == 0 and self.current_bet == 0:
-            self.state = PLAYERSTATE.BUST
+            self.state = PlayerState.BUST
+        else: 
+            self.state = PlayerState.ACTIVE
+    
+    def calculate_spr(self, pot_size: int) -> float:
+        """Calculate pot-to-stack ratio"""
+        return self.chips / pot_size if pot_size > 0 else float('inf')
+    
+    def calculate_m_ratio(self, total_blinds: int) -> float:
+        """Calculate the player's M-ratio (chip stack / total blinds)"""
+        return self.chips / total_blinds if total_blinds > 0 else float('inf')
+    
+    def calculate_effective_stack(self, opponent_chips: int) -> int:
+        """Calculate the effective stack(the smaller of this player's and opponent's stack)"""
+        return min(self.chips, opponent_chips)
+
+    
+    def calculate_aggression_factor(self) -> float:
+        """Calculate player's aggression factor"""
+        bets_and_raises = self.action_history.count('bet') + self.action_history.count('raise')
+        calls = self.action_history.count('call')
+        return bets_and_raises / calls if calls > 0 else float('inf')
+    
+    def calculate_roi(self) -> float:
+        """Calculate the player's roi (return of investment)"""
+        total_buyins = self.stats['hands_played'] * (self.chips + self.bounty)
+        return (self.stats['total_profit'] / total_buyins) * 100 if total_buyins > 0 else 0
+    
+    def calculate_vpip(self) -> float:
+        """Calculate the player's vpip (voluntarily put money in pot)"""
+        voluntary_actions = sum(1 for action in self.action_history if action in ['bet', 'raise', 'call'])
+        return (voluntary_actions / len(self.action_history)) * 100 if self.action_history else 0
+    
+    def calculate_pfr(self) -> float:
+        """Calculate pfr (pre-flop raise) percentage"""
+        preflop_raises = sum(1 for action in self.action_history if action == 'raise')
+        return (preflop_raises / self.stats['hands_played']) * 100 if self.stats['hands_played'] > 0 else 0
+    
+    def get_range(self) -> str:
+        """Get player's estimated range based on position and actions"""
+        position_category =self.get_position_category()
+        if position_category == "early":
+            return "Premium hands only"
+        elif position_category == "middle":
+            return "Strong to medium hands"
+        elif position_category == "late":
+            return "wide range of hands"
         else:
-            self.state = PLAYERSTATE.ACTIVE
+            return "Unknown range"
+    
+    def add_chips(self, amount: int) -> None:
+        """Add chips to the player's stack after winning a pot"""
+        self.chips += amount
+
+    def get_stack_size(self) -> int:
+        """Get the current player's stack size"""
+        return self.chips
+    
+    def get_win_rate(self) -> float:
+        """Get the player's winrate"""
+        return (self.stats['hands_won'] / self.stats['hands_played']) * 100 if self.stats['hands_played'] > 0 else 0
+    
+    def get_current_state(self) -> PlayerState:
+        """Get player's current state"""
+        return self.state
+    
+
     
     def decide(self, game_state: dict, options: List[str]) -> str:
         """
@@ -166,7 +256,7 @@ class Player:
             'has_folded' : self.has_folded,
             'current_bet' : self.current_bet,
             'total_bet' : self.total_bet,
-            'position' : self.position,
+            'position' : self.position if self.position else None,
             'stats' : self.stats,
             'tilt_factor' : self.tilt_factor,
             'state' : self.state.value,
@@ -179,9 +269,9 @@ class Player:
         player.has_folded = data['has_folded']
         player.current_bet = data['current_bet']
         player.total_bet = data['total_bet']
-        player.position = data['position']
+        player.position = Position[data['position']] if data['position'] else None
         player.stats = data['stats']
         player.tilt_factor = data['tilt_factor']
-        player.state = PLAYERSTATE(data['state'])
+        player.state = PlayerState(data['state'])
         return player
         
