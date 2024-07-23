@@ -8,6 +8,7 @@ from tensorflow.keras import layers
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.callbacks import LearningRateScheduler
+from tensorflow.keras.utils import plot_model
 from kerastuner import RandomSearch
 from kerastuner.engine.hyperparameters import Hyperparameters
 from sklearn.model_selection import KFold
@@ -122,9 +123,28 @@ class NeuralNetwork:
         lr = initial_lr * (drop ** ((1 + epoch) // epochs_drop))
         
         return lr
+    
+    def save(self, filepath):
+        """Save the entire neural network object"""
+        with open(filepath, 'wb') as f:
+            pickle.dump({
+                'model' : self.model,
+                'preprocessor' : self.preprocessor
+            }, f)
 
     def save_model(self, filepath):
         self.model.save(filepath)
+    
+    
+    @classmethod
+    def load(cls, filepath):
+        """Load the entire neural network object"""
+        with open(filepath, 'rb') as f:
+            data = pickle.load(f)
+        instance = cls(data['model'].input_shape[1:])
+        instance.model = data['model']
+        instance.preprocessor = data['preprocessor']
+        return instance
 
     @classmethod
     def load_model(cls, filepath):
@@ -238,6 +258,9 @@ class NeuralNetwork:
             ])
             
         self.model.compile(optimizer = 'adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    
+    def visualize_model(self, filepath = 'model.png'):
+        plot_model(self.model, to_file=filepath, show_shapes = True, show_layer_names = True)
         
     def model_summary(self):
         self.model.summary()
