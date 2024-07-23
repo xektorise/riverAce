@@ -82,7 +82,7 @@ class Hand:
         for i in range(len(unique_ranks) - 4):
             if unique_ranks[i] - unique_ranks[i+4] == 4:
                 return unique_ranks[i:i+5]
-        # Check for Ace-low straight (A-2-3-4-5)
+        # check for Ace-low straight (A-2-3-4-5)
         if set(unique_ranks[:4]) == {3, 2, 1, 0} and 12 in unique_ranks:
             return [3, 2, 1, 0, 12]
         return []
