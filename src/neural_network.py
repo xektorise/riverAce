@@ -264,6 +264,14 @@ class NeuralNetwork:
         
     def model_summary(self):
         self.model.summary()
+    
+    def reset_model(self):
+        """Reset model to its inital state"""
+        self.model = self._build_model(self.model.input_shape[1:])
+    
+    def get_model_config(self):
+        """Get current model configuration"""
+        return self.model.get_config()
         
     def get_current_lr(self):
         return self.model.optimizer.lr.numpy()
