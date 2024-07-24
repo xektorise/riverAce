@@ -1,3 +1,5 @@
+#type: ignore
+
 import numpy as np
 import matplotlib.pyplot as plt
 import shap
@@ -5,12 +7,10 @@ import pickle
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.callbacks import LearningRateScheduler
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, LearningRateScheduler
 from tensorflow.keras.utils import plot_model
-from kerastuner import RandomSearch
-from kerastuner.engine.hyperparameters import Hyperparameters
+from keras_tuner import RandomSearch
+from keras_tuner.engine.hyperparameters import HyperParameters
 from sklearn.model_selection import KFold
 from typing import List, Dict
 from data_processor import DataPreprocessor
@@ -275,3 +275,8 @@ class NeuralNetwork:
         
     def get_current_lr(self):
         return self.model.optimizer.lr.numpy()
+    
+if __name__ == "__main__":
+    print("NeuralNetwork class initialized successfully!")
+    nn = NeuralNetwork(input_shape=(10,))  # adjust the input shape as needed
+    print(nn.model.summary())
