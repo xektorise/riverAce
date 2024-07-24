@@ -73,14 +73,14 @@ class DataPreprocessor:
     def calculate_hand_strength(hole_cards: List[str], community_cards: List[str]) -> float:
         try:
             
+            if len(hole_cards) + len(community_cards) < 5:
+                return 0.0
+            
             hole_card_objects = [Card(card[0], card[1:]) for card in hole_cards]
             community_card_objects = [Card(card[0], card[1:]) for card in community_cards]
-
             hand = Hand()
             hand.add_hole_cards(hole_card_objects)
             hand.add_community_cards(community_card_objects)
-
-
             return hand.get_hand_strength()
         
         except Exception as e:
