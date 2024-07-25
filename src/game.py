@@ -117,7 +117,8 @@ class Game:
                 options = ['fold', 'all-in']
             elif 'bet' in options and self.current_bet > 0:
                 options.remove('bet')
-
+        
+        game_state = self.get_game_state()
         return player.decide(self.get_game_state(), options=options)
     
     def _process_player_action(self, player: Player, action: str):
@@ -174,6 +175,7 @@ class Game:
     def play_round(self):
         try:
             self.logger.info("New round started")
+            self.last_actions.clear()
             self.deck.shuffle()
             self.deal_hands()
             self.post_blinds()
@@ -298,9 +300,9 @@ class Game:
             'community_cards': self.community_cards,
             'current_bet': self.current_bet,
             'player_chips': {player.name: player.chips for player in self.players},
-            'player_positions': {player.name: (self.dealer_index + i) % len(self.players) for i, player in enumerate(self.players)},
+            'player_position': {player.name: (self.dealer_index + i) % len(self.players) for i, player in enumerate(self.players)},
             'bounties': {player.name: player.bounty for player in self.players},
             'current_stage' : self.current_stage,
-            'last_action' : self.last_actions,
+            'last_actions' : self.last_actions,
             'average_stack' : self.get_average_stack()
         }

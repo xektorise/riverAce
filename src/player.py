@@ -56,19 +56,16 @@ class Player:
         if isinstance(other, Player):
             return self.name == other.name and self.chips == other.chips and self.bounty == other.bounty
         return False
-    
+
     def bet(self, amount: int) -> int:
-        """Place a bet of a given amount."""
         if amount <= 0:
             raise ValueError("Bet amount must be positive")
-        
-        if self.chips >= amount:
-            self.chips -= amount
-            self.current_bet += amount
-            self.total_bet += amount
-            return amount
-        else:
-            raise ValueError("Not enough chips")
+        if amount > self.chips:
+            raise ValueError(f"Bet amount {amount} exceeds available chips {self.chips}")
+        self.chips -= amount
+        self.current_bet += amount
+        self.total_bet += amount
+        return amount
     
     def call(self, amount: int) -> int:
         """Call a bet by matching the current highest bet."""
@@ -101,12 +98,23 @@ class Player:
         return self.bet(raise_amount - self.current_bet)
     
     def all_in(self) -> int:
-        """Go all-in with the remaining chips."""
         all_in_amount = self.chips
         self.current_bet += self.chips
         self.total_bet += self.chips
         self.chips = 0
+        self.state = PlayerState.ALL_IN
         return all_in_amount
+    
+
+    def post_blind(self, amount: int) -> None:
+        """Post a blind bet."""
+        self.bet(amount)
+
+    def win_pot(self, amount: int) -> None:
+        """Handle winning a pot."""
+        self.add_chips(amount)
+        self.update_stats(won=True, profit=amount, pot_size=amount)
+
 
     def add_hole_cards(self, cards: List[Card]) -> None:
         """Add hole cards to the player's hand."""

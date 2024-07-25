@@ -52,6 +52,7 @@ class Bot(Player):
     def decide(self, game_state: Dict, options: List[str]) -> str:
         self.update_opponent_model(game_state)
         self.adjust_strategy(game_state)
+        
 
         features = self.preprocessor.preprocess_game_state(game_state)
         scaled_features = self.preprocessor.transform_data(features)
@@ -95,10 +96,10 @@ class Bot(Player):
     def update_model(self, game_history: List[Dict]):
         if not game_history:
             return
-        
+
         game_states = [gh['state'] for gh in game_history]
         actions = [gh['action'] for gh in game_history]
-        
+
         self.train(game_states, actions)
     
     def update_opponent_model(self, game_state: Dict):
