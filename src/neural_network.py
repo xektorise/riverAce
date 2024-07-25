@@ -75,15 +75,17 @@ class NeuralNetwork:
 
     def train(self, game_states: List[Dict], actions: List[int], epochs = 10, batch_size = 32):
         df = self.preprocessor.create_dataframe(game_states, actions)
-        x = df[self.preprocessor.feature_columns()]
+        x = df[self.preprocessor.get_feature_columns()]
         y = keras.utils.to_categorical(df['action'], num_classes=6)
         x_scaled = self.preprocessor.fit_transform_data(x.values)
         early_stopping = EarlyStopping(monitor='val_loss', patience = 5)
         checkpoint = ModelCheckpoint('best_model.h5', save_best_only = True, monitor = 'val_loss')
         lr_scheduler = LearningRateScheduler(self.lr_schedule)
         history = self.model.fit(x_scaled, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, callbacks=[early_stopping, checkpoint, lr_scheduler])
+
+        _, accuracy = self.model.evaluate(x_scaled, y)
         
-        return history
+        return history, accuracy
 
     def predict(self, game_state: Dict):
         try:
@@ -264,6 +266,18 @@ class NeuralNetwork:
         
     def model_summary(self):
         self.model.summary()
+
+    def update_model(self, new_game_states: List[Dict], new_actions: List[Dict], epochs = 5, batch_size = 32):
+        df = self.preprocessor.create_dataframe(new_game_states, new_actions)
+        x = df[self.preprocessor.get_feature_columns()]
+        y = keras.utils.to_categorical(df['action'], num_classes = 6)
+        x_scaled = self.preprocessor.fit_transform_data(x.values)
+        self.model.fit(x_scaled, y ,epochs=epochs, batch_size=batch_size)
+    
+    def predict_proba(self, game_state: Dict):
+        preprocessed_state = self.preprocessor.preprocess_game_state(game_state)
+        scaled_state = self.preprocessor.transform_data(preprocessed_state)
+        return self.model.predict(scaled_state)[0]
     
     def reset_model(self):
         """Reset model to its inital state"""
@@ -275,6 +289,9 @@ class NeuralNetwork:
         
     def get_current_lr(self):
         return self.model.optimizer.lr.numpy()
+    
+    def is_trained(self):
+        return self.model.optimizer.iterations.numpy() > 0
     
 if __name__ == "__main__":
     print("NeuralNetwork class initialized successfully!")

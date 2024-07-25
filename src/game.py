@@ -24,6 +24,8 @@ class Game:
         self.side_pots: List[Tuple[int, Player]] = []
         self.current_stage = 'pre-flop'
         self.logger = self._setup_logger()
+        self.game_history = []
+        self.last_actions = {}
     
     
     def _setup_logger(self):
@@ -71,25 +73,28 @@ class Game:
         """Conduct a single round of betting."""
         active_players = [player for player in self.players if not player.has_folded and player.chips > 0]
         players_acted = 0
-        last_raiser = False
+        last_raiser = None
+        first_bet_made = self.current_bet > 0
 
         while not self._betting_round_complete(active_players, players_acted, last_raiser):
-            current_player = active_players[self.current_player_index]
+            current_player = active_players[self.current_player_index % len(active_players)]
             if current_player.has_folded or current_player.chips == 0:
                 self.current_player_index = (self.current_player_index + 1) % len(active_players)
                 continue
-                
-            action = self._get_player_action(current_player, first_bet_made=(self.current_bet > 0))
+            
+            action = self._get_player_action(current_player, first_bet_made)
             self._process_player_action(current_player, action)
-                
+            self.last_actions[current_player.name] = action
+            
             if action in ['bet', 'raise']:
                 last_raiser = current_player
                 players_acted = 1
+                first_bet_made = True
             else:
                 players_acted += 1
             
             self.current_player_index = (self.current_player_index + 1) % len(active_players)
-                
+        
         self.collect_bets()
     
     def _betting_round_complete(self, active_players: List[Player], players_acted: int, last_raiser: Player) -> bool:
@@ -99,18 +104,20 @@ class Game:
                      for player in active_players)))
     
     def _get_player_action(self, player: Player, first_bet_made: bool) -> str:
-        options = ['call', 'fold', 'check', 'raise', 'all-in'] if first_bet_made else ['bet', 'fold', 'raise']
+        options = ['call', 'fold', 'check', 'raise', 'all-in'] if first_bet_made else ['bet', 'fold', 'check', 'raise']
         
         if self.current_bet > player.current_bet:
-            options.remove('check')
-        if self.current_bet == 0:
-            options.remove('call')
-        if self.current_bet >= player.chips + player.current_bet:
-            options = ['fold', 'all-in']
-        elif self.current_bet > 0:
-            options.remove('bet')
-        
-        
+            if 'check' in options:
+                options.remove('check')
+            elif self.current_bet == player.current_bet:
+                if 'call' in options:
+                    options.remove('call')
+
+            if self.current_bet >= player.chips + player.current_bet:
+                options = ['fold', 'all-in']
+            elif 'bet' in options and self.current_bet > 0:
+                options.remove('bet')
+
         return player.decide(self.get_game_state(), options=options)
     
     def _process_player_action(self, player: Player, action: str):
@@ -128,7 +135,7 @@ class Game:
         elif action == 'call':
             call_amount = self.current_bet - player.current_bet
             if call_amount > player.chips:
-                player.all_in()
+                all_in_amount = player.all_in()
                 self.logger.info(f"Player {player.name} called all-in for {all_in_amount}")
             else:
                 player.bet(call_amount)
@@ -179,11 +186,26 @@ class Game:
                 elif stage in ['turn', 'river']:
                     self.deal_community_cards(1)
                 self.betting_round()
+                self.logger.info(f"Pot after {stage}: {self.pot}")
 
-            self.determine_winner()
+            winners = self.determine_winner()
+            self.award_pot(winners)
             self.move_dealer()
+            self.reset_for_new_round()
+            return winners
         except Exception as e:
             self.logger.error(f"Error during round: {str(e)}")
+            self.logger.error(f"Current game state: {self.get_game_state()}")
+            return []
+
+    def award_pot(self, winners):
+        if not winners:
+            return
+        pot_share = self.pot // len(winners)
+        for winner in winners:
+            winner.chips += pot_share
+            self.logger.info(f"{winner.name} wins {pot_share} chips")
+        self.pot = 0
     
     def determine_winner(self):
         """Determine the winner of the round and handle split pots."""
@@ -217,6 +239,8 @@ class Game:
         self.side_pots.clear()
         self.logger.info(f"Round ended. Winners {[winner.name for winner in winners]}")
 
+        return winners
+
     def split_pot(self, winners: List[Player]):
         """Split the pot among the winners."""
         num_winners = len(winners)
@@ -249,6 +273,23 @@ class Game:
         for player in self.players:
             player.reset_for_new_round()
 
+    def get_game_history(self) -> List[Dict]:
+        """Get the game history for bot training"""
+        return self.game_history
+    
+
+    def add_game_to_history(self, state: Dict, action: str):
+        """Add current game state to and action to game history"""
+        self.game_history.append({
+            'state': state,
+            'action' : action
+        })
+
+    def get_average_stack(self) -> float:
+        """Calculate average stack size"""
+        return sum(player.chips for player in self.players) / len(self.players)
+    
+
 
     def get_game_state(self) -> Dict:
         """Get the current game state."""
@@ -259,5 +300,7 @@ class Game:
             'player_chips': {player.name: player.chips for player in self.players},
             'player_positions': {player.name: (self.dealer_index + i) % len(self.players) for i, player in enumerate(self.players)},
             'bounties': {player.name: player.bounty for player in self.players},
-            'current_stage' : self.current_stage
+            'current_stage' : self.current_stage,
+            'last_action' : self.last_actions,
+            'average_stack' : self.get_average_stack()
         }

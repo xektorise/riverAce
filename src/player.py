@@ -1,8 +1,8 @@
 import json
 from typing import List
 from enum import Enum, auto
-from src.hand import Hand
-from src.card import Card
+from hand import Hand
+from card import Card
 
 class PlayerState(Enum):
     ACTIVE = 1
@@ -209,6 +209,16 @@ class Player:
         """Calculate pfr (pre-flop raise) percentage"""
         preflop_raises = sum(1 for action in self.action_history if action == 'raise')
         return (preflop_raises / self.stats['hands_played']) * 100 if self.stats['hands_played'] > 0 else 0
+    
+    def calculate_pot_odds(self, pot_size: int, current_bet: int) -> float:
+        """Calculate pot odds"""
+
+        call_amount = current_bet - self.current_bet
+
+        if call_amount == 0:
+            return 0.0
+        
+        return call_amount / (pot_size + call_amount)
     
     def get_range(self) -> str:
         """Get player's estimated range based on position and actions"""
