@@ -1,6 +1,7 @@
 from typing import List, Tuple
 from collections import Counter
-from card import Card
+from card import Card, Rank, Suit
+import itertools
 
 class Hand:
     
@@ -20,6 +21,19 @@ class Hand:
     def __init__(self):
         self.hole_cards: List[Card] = []
         self.community_cards: List[Card] = []
+        
+    def __lt__(self, other: 'Hand') -> bool:
+        return self.get_hand_strength() < other.get_hand_strength()
+
+    def __eq__(self, other: 'Hand') -> bool:
+        return self.get_hand_strength() == other.get_hand_strength()
+    
+    def __str__(self) -> str:
+        return f"Hole cards: {', '.join(str(card) for card in self.hole_cards)}, " \
+               f"Community cards: {', '.join(str(card) for card in self.community_cards)}"
+
+    def __repr__(self) -> str:
+        return f"Hand(hole_cards={self.hole_cards}, community_cards={self.community_cards})"
 
     def add_hole_cards(self, new_cards: List[Card]) -> None:
         """Add hole cards to the hand."""
@@ -34,15 +48,15 @@ class Hand:
         self.hole_cards.clear()
         self.community_cards.clear()
 
-    def evaluate(self) -> Tuple[str, List[int]]:
+    def evaluate(self) -> Tuple[str, List[Rank]]:
         """Evaluate the hand and return its rank and the highest cards involved."""
         all_cards = self.hole_cards + self.community_cards
         
         if len(all_cards) < 5:
             return 'Incomplete', []
 
-        ranks = [Card.ranks.index(card.rank) for card in all_cards]
-        suits = [card.suit for card in all_cards]
+        ranks = [card.rank.value for card in all_cards]
+        suits = [card.suit.value for card in all_cards]
         
         rank_counts = Counter(ranks)
         suit_counts = Counter(suits)
@@ -52,7 +66,7 @@ class Hand:
         
         if is_flush and is_straight:
             straight_ranks = self._get_straight_ranks(ranks)
-            if straight_ranks == [12, 11, 10, 9, 8]:  # ace, king, queen, jack, ten
+            if straight_ranks == [Rank.ACE, Rank.KING, Rank.QUEEN, Rank.JACK, Rank.TEN]:  # ace, king, queen, jack, ten
                 return 'Royal Flush', straight_ranks
             return 'Straight Flush', straight_ranks
         if 4 in rank_counts.values():
@@ -72,36 +86,52 @@ class Hand:
         
         return 'High Card', sorted(ranks, reverse=True)[:5]
 
-    def _is_straight(self, ranks):
-        """Check if the hand is a straight and return the highest ranks if true."""
-        unique_ranks = sorted(set(ranks), reverse=True)
-        return any(unique_ranks[i] - unique_ranks[i+4] == 4 for i in range(len(unique_ranks) - 4))
+    def _is_straight(self, ranks: List[Rank]) -> bool:
+        unique_ranks = sorted(set(ranks), key=lambda r: r.value)
+        if len(unique_ranks) < 5:
+            return False
+        if Rank.ACE in unique_ranks and Rank.TWO in unique_ranks:
+            unique_ranks.append(Rank.ACE)  # add a low ace
+        for i in range(len(unique_ranks) - 4):
+            if unique_ranks[i+4].value - unique_ranks[i].value == 4:
+                return True
+        return False
     
-    def _get_straight_ranks(self, ranks: List[int]) -> List[int]:
+    def _get_straight_ranks(self, ranks: List[Rank]) -> List[Rank]:
         unique_ranks = sorted(set(ranks), reverse=True)
         for i in range(len(unique_ranks) - 4):
-            if unique_ranks[i] - unique_ranks[i+4] == 4:
+            if unique_ranks[i].value - unique_ranks[i+4].value == 4:
                 return unique_ranks[i:i+5]
         # check for Ace-low straight (A-2-3-4-5)
-        if set(unique_ranks[:4]) == {3, 2, 1, 0} and 12 in unique_ranks:
-            return [3, 2, 1, 0, 12]
+        if set(unique_ranks[:4]) == {Rank.FIVE, Rank.FOUR, Rank.THREE, Rank.TWO} and Rank.ACE in unique_ranks:
+            return [Rank.FIVE, Rank.FOUR, Rank.THREE, Rank.TWO, Rank.ACE]
         return []
     
-    def _get_rank_hand(self, rank_counts: Counter, primary_count: int, kicker_count: int) -> List[int]:
-        primary_ranks = [rank for rank, count in rank_counts.items() if count == primary_count]
-        kicker_ranks = [rank for rank, count in rank_counts.items() if count < primary_count]
+    def _get_rank_hand(self, rank_counts: Counter, primary_count: int, kicker_count: int) -> List[Rank]:
+        primary_ranks = [Rank(rank) for rank, count in rank_counts.items() if count == primary_count]
+        kicker_ranks = [Rank(rank) for rank, count in rank_counts.items() if count < primary_count]
         return sorted(primary_ranks, reverse=True) + sorted(kicker_ranks, reverse=True)[:kicker_count]
     
     def get_hand_strength(self) -> float:
-        hand_rank, hand_strength = self.evaluate()
+        hand_rank, hand_cards = self.evaluate()
         base_score = self.HAND_RANKINGS[hand_rank] * 1000000
-        for i, card in enumerate(hand_strength):
-            base_score += card * (100 ** (4 - i))
-        return base_score / 10000000  # normalize to 0-1 range for comparisions
-
-    def __str__(self) -> str:
-        return f"Hole cards: {', '.join(str(card) for card in self.hole_cards)}, " \
-               f"Community cards: {', '.join(str(card) for card in self.community_cards)}"
-
-    def __repr__(self) -> str:
-        return f"Hand(hole_cards={self.hole_cards}, community_cards={self.community_cards})"
+        for i, card in enumerate(hand_cards):
+            base_score += card.value * (100 ** (4 - i))
+        return base_score / 10000000  # normalize to 0-1 range for comparisons
+    
+    def get_best_hand(self) -> List[Card]:
+        all_cards = self.hole_cards + self.community_cards
+        best_hand_strength = 0
+        best_hand = []
+        for combo in itertools.combinations(all_cards, 5):
+            hand = Hand()
+            hand.add_hole_cards(list(combo))
+            strength = hand.get_hand_strength()
+            if strength > best_hand_strength:
+                best_hand_strength = strength
+                best_hand = list(combo)
+        return best_hand
+    
+    def describe_hand(self) -> str:
+        hand_type, _ = self.evaluate()
+        return f"{hand_type}: {', '.join(str(card) for card in self.get_best_hand())}"

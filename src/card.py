@@ -1,24 +1,46 @@
 from dataclasses import dataclass
+from enum import Enum, auto
+
+
+
+class Suit(Enum):
+    HEARTS = 'H'
+    DIAMONDS = 'D'
+    CLUBS = 'C'
+    SPADES = 'S'
+
+class Rank(Enum):
+    TWO = '2'
+    THREE = '3'
+    FOUR = '4'
+    FIVE = '5'
+    SIX = '6'
+    SEVEN = '7'
+    EIGHT = '8'
+    NINE = '9'
+    TEN = 'T'
+    JACK = 'J'
+    QUEEN = 'Q'
+    KING = 'K'
+    ACE = 'A'
+    
 
 @dataclass(frozen=True)
 class Card:
-    rank: str
-    suit: str
-
-    suits = ['H', 'D', 'C', 'S']
-    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-    rank_values = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 
-                   'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+    rank: Rank
+    suit: Suit
+    
+    rank = list(Rank)
+    suit = list(Suit)
+    rank_values = {r.value: i + 2 for i, r in enumerate(Rank)}
 
     def __post_init__(self):
-        if self.rank not in self.ranks:
-            raise ValueError(f"Invalid rank: {self.rank}")
-        if self.suit not in self.suits:
-            raise ValueError(f"Invalid suit: {self.suit}")
+        if not isinstance(self.rank, Rank) or not isinstance(self.suit, Suit):
+            raise ValueError(f"Invalid rank or suit: {self.rank}, {self.suit}")
         
         # store indices for faster comparisons
-        object.__setattr__(self, 'rank_index', self.ranks.index(self.rank))
-        object.__setattr__(self, 'suit_index', self.suits.index(self.suit))
+        object.__setattr__(self, 'rank_index', list(Rank).index(self.rank))
+        object.__setattr__(self, 'suit_index', list(Suit).index(self.suit))
 
     def __str__(self):
         return f"{self.rank} of {self.suit}"
@@ -51,8 +73,24 @@ class Card:
         return hash((self.rank, self.suit))
 
     def get_value(self):
-        return self.rank_values[self.rank]
+        return self.rank_values[self.rank.value]
+    
+    def to_poker_notation(self):
+        return f"{self.rank.value}{self.suit.value}"
+    
+    def is_face_card(self):
+        return self.rank in [Rank.JACK, Rank.QUEEN, Rank.KING]
+
+    def is_ace(self):
+        return self.rank == Rank.ACE
+    
+    @classmethod
+    def from_string(cls, card_string: str):
+        if len(card_string) != 2:
+            raise ValueError("Card string must be 2 characters long")
+        rank, suit = card_string[0], card_string[1]
+        return cls(Rank(rank), Suit(suit))
 
     @property
     def color(self):
-        return 'Red' if self.suit in ['H', 'D'] else 'Black'
+        return 'Red' if self.suit in [Suit.HEARTS, Suit.DIAMONDS] else 'Black'

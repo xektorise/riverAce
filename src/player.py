@@ -25,6 +25,7 @@ class Player:
         self.name = name
         self.chips = chips
         self.bounty = bounty
+        self.total_bounty_won = 0
         self.hand = Hand()
         self.has_folded = False
         self.current_bet = 0
@@ -42,21 +43,23 @@ class Player:
         }
     
     def __str__(self) -> str:
-        """Return a string representation of the player."""
-        return f"Player(name={self.name}, chips={self.chips}, bounty={self.bounty}, has_folded={self.has_folded})"
-    
+        return f"Player(name={self.name}, chips={self.chips}, bounty={self.bounty}, total_bounty_won={self.total_bounty_won}, has_folded={self.has_folded})"
+
     def __repr__(self) -> str:
-        """Return a detailed string representation of the player for debugging."""
         return (f"Player(name='{self.name}', chips={self.chips}, bounty={self.bounty}, "
-                f"hand={self.hand}, has_folded={self.has_folded}, current_bet={self.current_bet}, "
+                f"total_bounty_won={self.total_bounty_won}, hand={self.hand}, "
+                f"has_folded={self.has_folded}, current_bet={self.current_bet}, "
                 f"total_bet={self.total_bet})")
     
     def __eq__(self, other):
-        """Check if two players are equal."""
         if isinstance(other, Player):
-            return self.name == other.name and self.chips == other.chips and self.bounty == other.bounty
+            return (self.name == other.name and
+                    self.chips == other.chips and
+                    self.bounty == other.bounty and
+                    self.total_bounty_won == other.total_bounty_won)
         return False
-
+    
+    
     def bet(self, amount: int) -> int:
         if amount <= 0:
             raise ValueError("Bet amount must be positive")
@@ -119,6 +122,12 @@ class Player:
     def add_hole_cards(self, cards: List[Card]) -> None:
         """Add hole cards to the player's hand."""
         self.hand.add_hole_cards(cards)
+    
+    
+    def add_bounty_won(self, amount: int) -> None:
+        """Add to the total bounty won by this player."""
+        self.total_bounty_won += amount
+        self.logger.info(f"{self.name} has won a total of {self.total_bounty_won} in bounties")
 
     def update_hand_with_community_cards(self, community_cards: List[Card]) -> None:
         """Update the player's hand with community cards."""
@@ -228,22 +237,141 @@ class Player:
         
         return call_amount / (pot_size + call_amount)
     
-    def get_range(self) -> str:
-        """Get player's estimated range based on position and actions"""
-        position_category =self.get_position_category()
-        if position_category == "early":
-            return "Premium hands only"
-        elif position_category == "middle":
-            return "Strong to medium hands"
-        elif position_category == "late":
-            return "wide range of hands"
+    def calculate_implied_odds(self, pot_size: int, current_bet: int, expected_future_bets: int) -> float:
+        call_amount = current_bet - self.current_bet
+        return (pot_size + current_bet + expected_future_bets) / call_amount
+    
+    def set_relative_position(self, num_players: int, button_position: int) -> None:
+        self.relative_position = (self.seat - button_position) % num_players
+    
+    def update_position(self, num_players: int, dealer_position: int) -> None:
+        positions = list(Position)
+        self.position = positions[(dealer_position - self.seat + num_players) % num_players]
+    
+    def get_range(self, game_state: dict) -> List[Tuple[str, float]]:
+        """Get player's estimated range based on position, stats, and game state."""
+        vpip = self.calculate_vpip()
+        pfr = self.calculate_pfr()
+        aggression_factor = self.calculate_aggression_factor()
+        position = self.position
+        stage = game_state['current_stage']
+        stack_to_pot_ratio = self.chips / game_state['pot_size'] if game_state['pot_size'] > 0 else float('inf')
+
+        # define hand groups
+        premium_hands = ['AA', 'KK', 'QQ', 'AKs']
+        strong_hands = ['JJ', 'TT', 'AKo', 'AQs', 'AJs', 'KQs']
+        medium_hands = ['99', '88', 'ATs', 'KJs', 'QJs', 'JTs']
+        speculative_hands = ['77', '66', '55', 'A9s-A2s', 'KTs-K9s', 'QTs-Q9s', 'JTs-J9s', 'T9s', '98s', '87s', '76s', '65s']
+
+        # base ranges for different player types
+        tight_range = premium_hands + strong_hands[:2]
+        medium_range = premium_hands + strong_hands + medium_hands[:4]
+        loose_range = premium_hands + strong_hands + medium_hands + speculative_hands
+
+        # determine base range based on VPIP
+        if vpip < 15:
+            base_range = tight_range
+        elif 15 <= vpip < 25:
+            base_range = medium_range
         else:
-            return "Unknown range"
+            base_range = loose_range
+
+        # adjust range based on position
+        if position in [Position.BUTTON, Position.CUTOFF]:
+            base_range = base_range + medium_hands
+        elif position == Position.MIDDLE_POSITION:
+            base_range = [hand for hand in base_range if hand not in speculative_hands]
+        elif position in [Position.UNDER_THE_GUN, Position.SMALL_BLIND, Position.BIG_BLIND]:
+            base_range = [hand for hand in base_range if hand in premium_hands + strong_hands]
+
+        # adjust range based on preflop raising frequency
+        if pfr > 20:
+            base_range = base_range + medium_hands
+        elif pfr < 10:
+            base_range = [hand for hand in base_range if hand in premium_hands + strong_hands[:3]]
+
+        # adjust range based on aggression factor
+        if aggression_factor > 2:
+            base_range = base_range + medium_hands + speculative_hands[:5]
+        elif aggression_factor < 1:
+            base_range = [hand for hand in base_range if hand in premium_hands + strong_hands]
+
+        # adjust range based on stack-to-pot ratio
+        if stack_to_pot_ratio < 5:
+            base_range = [hand for hand in base_range if hand in premium_hands + strong_hands + medium_hands[:2]]
+        elif stack_to_pot_ratio > 20:
+            base_range = base_range + speculative_hands
+
+        # assign probabilities to hands in the range
+        hand_probabilities = []
+        for hand in base_range:
+            if hand in premium_hands:
+                probability = 0.8
+            elif hand in strong_hands:
+                probability = 0.6
+            elif hand in medium_hands:
+                probability = 0.4
+            else:
+                probability = 0.2
+            
+            # adjust probability based on stage
+            if stage != 'preflop':
+                probability *= 0.8  # reduce probability as the hand progresses
+            
+            hand_probabilities.append((hand, probability))
+
+        # normalize probabilities
+        total_probability = sum(prob for _, prob in hand_probabilities)
+        normalized_hand_probabilities = [(hand, prob / total_probability) for hand, prob in hand_probabilities]
+
+        return sorted(normalized_hand_probabilities, key=lambda x: x[1], reverse=True)
+
+    def get_range_description(self, game_state: dict) -> str:
+        """Get a textual description of the player's range."""
+        hand_range = self.get_range(game_state)
+        vpip = self.calculate_vpip()
+        pfr = self.calculate_pfr()
+        aggression_factor = self.calculate_aggression_factor()
+
+        top_hands = [hand for hand, prob in hand_range if prob > 0.05]
+        
+        if len(top_hands) <= 3:
+            range_description = f"Very tight range: {', '.join(top_hands)}"
+        elif len(top_hands) <= 10:
+            range_description = f"Medium range: {', '.join(top_hands)}"
+        else:
+            range_description = f"Wide range: {', '.join(top_hands[:10])}..."
+
+        # add playing style description
+        if vpip < 15:
+            range_description += ". Very tight player"
+        elif 15 <= vpip < 25:
+            range_description += ". Tight player"
+        elif 25 <= vpip < 35:
+            range_description += ". Medium player"
+        else:
+            range_description += ". Loose player"
+
+        if pfr > vpip * 0.8:
+            range_description += ", very aggressive pre-flop"
+        elif pfr > vpip * 0.5:
+            range_description += ", moderately aggressive pre-flop"
+        else:
+            range_description += ", passive pre-flop"
+
+        if aggression_factor > 2:
+            range_description += ", highly aggressive post-flop"
+        elif 1 < aggression_factor <= 2:
+            range_description += ", moderately aggressive post-flop"
+        else:
+            range_description += ", passive post-flop"
+
+        return range_description
     
     def add_chips(self, amount: int) -> None:
         """Add chips to the player's stack after winning a pot"""
         self.chips += amount
-
+        
     def get_stack_size(self) -> int:
         """Get the current player's stack size"""
         return self.chips
@@ -252,18 +380,25 @@ class Player:
         """Get the player's winrate"""
         return (self.stats['hands_won'] / self.stats['hands_played']) * 100 if self.stats['hands_played'] > 0 else 0
     
+    def get_total_winnings(self) -> int:
+        return self.chips + self.total_bounty_won
+    
     def get_current_state(self) -> PlayerState:
         """Get player's current state"""
         return self.state
     
-
+    def reset_stats(self) -> None:
+        self.stats = {
+            'hands_played': 0,
+            'hands_won': 0,
+            'total_profit': 0,
+            'biggest_pot_win': 0,
+        }
+        self.total_bounty_won = 0
+        self.hand_history.clear()
+        self.action_history.clear()
+        self.reset_tilt_factor()
     
-    def decide(self, game_state: dict, options: List[str]) -> str:
-        """
-        Make a decision based on the current game state and available options.
-        This method will be overridden in a Bot subclass for AI players.
-        """
-        raise NotImplementedError("This method should be implemented in a subclass")
     
     def to_dict(self) -> dict:
         """Convert the player object to a dictionary for serialization."""
@@ -271,6 +406,7 @@ class Player:
             'name' : self.name,
             'chips' : self.chips,
             'bounty' : self.bounty,
+            'total_bounty_won' : self.total_bounty_won,
             'has_folded' : self.has_folded,
             'current_bet' : self.current_bet,
             'total_bet' : self.total_bet,
@@ -284,6 +420,7 @@ class Player:
     def from_dict(cls, data: dict) -> 'Player':
         """Create a Player Object from dictionary"""
         player = cls(data['name'], data['chips'], data['bounty'])
+        player.total_bounty_won = data['total_bounty_won']
         player.has_folded = data['has_folded']
         player.current_bet = data['current_bet']
         player.total_bet = data['total_bet']

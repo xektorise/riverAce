@@ -1,11 +1,11 @@
 import random
 from typing import List
-from card import Card
+from card import Card, Rank, Suit
 
 class Deck:
     FULL_DECK_SIZE = 52
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize a new deck and shuffle it."""
         self.reset()
     
@@ -39,10 +39,48 @@ class Deck:
         self.cards = self.cards[num_cards:]
         return dealt_cards
     
+    def probability_of_card(self, rank: Rank = None, suit: Suit = None) -> float:
+        """
+        Calculate the probability of drawing a card with a specific rank or suit.
+        
+        Args:
+            rank (Rank, optional): The rank of the card.
+            suit (Suit, optional): The suit of the card.
+        
+        Returns:
+            float: The probability of drawing the specified card.
+        """
+        remaining_cards = len(self.cards)
+        if rank and suit:
+            matching_cards = sum(1 for card in self.cards if card.rank == rank and card.suit == suit)
+        elif rank:
+            matching_cards = sum(1 for card in self.cards if card.rank == rank)
+        elif suit:
+            matching_cards = sum(1 for card in self.cards if card.suit == suit)
+        else:
+            return 1.0
+        return matching_cards / remaining_cards
+    
+    def peek(self, num_cards: int = 1) -> List[Card]:
+        """Look at the top cards of the deck without removing them"""
+        if num_cards > len(self.cards):
+            raise ValueError("Cannot peek more cards than are in the deck.")
+        return self.cards[:num_cards]
+    
     def reset(self) -> None:
         """Reset the deck to a full set of 52 cards and shuffle it."""
-        self.cards = [Card(rank, suit) for suit in Card.suits for rank in Card.ranks]
+        self.cards = [Card(rank, suit) for suit in Suit for rank in Rank]
         self.shuffle()
+    
+    
+    def get_dealt_cards(self) -> List[Card]:
+        """Return a list of cards that have been dealt."""
+        all_cards = set([Card(rank, suit) for suit in Suit for rank in Rank])
+        return list(all_cards - set(self.cards))
+    
+    def is_empty(self) -> bool:
+        """Check if the deck is empty."""
+        return len(self.cards) == 0
     
     def __str__(self) -> str:
         """Return a string representation of the deck."""
